@@ -77,6 +77,14 @@ export default function App() {
     }
   };
 
+  const copyDDL = () => {
+  if (!result?.ddl) return;
+  navigator.clipboard.writeText(result.ddl)
+    .then(() => alert("DDL copied to clipboard!"))
+    .catch((err) => alert("Failed to copy: " + err));
+};
+
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
       {/* Header */}
@@ -240,8 +248,17 @@ export default function App() {
                       onClick={downloadDDL}
                       className="flex items-center space-x-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
                     >
+
                       <Download className="w-4 h-4" />
-                      <span>Download SQL</span>
+                           <span>Download SQL</span>
+                          </button>
+                       <button
+                         onClick={copyDDL}
+                       className="flex items-center space-x-2 bg-blue-600 text-white px-2 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                       >
+
+                      <Download className="w-4 h-4" />
+                      <span>Copy quary</span>
                     </button>
                   </div>
                   <div className="bg-slate-900 rounded-lg p-4 overflow-x-auto">

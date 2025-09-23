@@ -72,21 +72,23 @@ def clean_llm_output(result: str) -> str:
     return result.strip()
 
 def generate_full_ddl(df: pd.DataFrame, table_name: str, target: str) -> str:
-    """Use LLM to generate full CREATE TABLE DDL including first few rows."""
-    # ✅ Sanitize column names for SQL
+    """Use LLM to generate full CREATE TABLE DDL including all rows."""
+    # Sanitize column names
     df = df.rename(columns={c: sanitize_column_name(c) for c in df.columns})
-
-    preview = sanitize_for_json(df.replace({pd.NA: None}).to_dict(orient="records"))
+    
+    # Convert full dataset to JSON-friendly dict
+    all_data = sanitize_for_json(df.replace({pd.NA: None}).to_dict(orient="records"))
+    
     llm = get_llm()
-
+    
     prompt = f"""
 You are a professional database engineer.
-Given the following table preview (first 50 rows):
-{preview}
+Given the following table data:
+{all_data}
 
-1. Use the sanitized column names already provided (do not add spaces or special chars).
+1. Use the sanitized column names already provided (no spaces or special chars).
 2. Generate a CREATE TABLE statement for {target} named {table_name}.
-3. Include sample INSERT statements for the data shown.
+3. Include INSERT statements for **all rows**.
 
 Return JSON:
 {{
@@ -100,6 +102,7 @@ Only return JSON, no commentary.
         return json.loads(cleaned_result)["ddl"]
     except Exception as e:
         raise ValueError(f"Failed to parse JSON from LLM output: {repr(cleaned_result)}") from e
+
 
 
 def generate_change_log(new_df: pd.DataFrame, table_name: str, target: str) -> dict:
