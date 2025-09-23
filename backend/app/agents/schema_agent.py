@@ -8,13 +8,21 @@ import time
 from dotenv import load_dotenv
 from uuid import uuid4
 from datetime import datetime
+from app.services.ddl_generator import sanitize_column_name
+
 
 # Load environment variables
 load_dotenv()
 
-# Store last uploaded tables and history
-PREVIOUS_TABLES = {}  # Stores actual DataFrames by table name
-TABLE_HISTORY = []    # Stores metadata/history of all uploads
+# Store last uploaded tables and history by target
+PREVIOUS_TABLES = {
+    "databricks": {},
+    "snowflake": {}
+}
+TABLE_HISTORY = {
+    "databricks": [],
+    "snowflake": []
+}
 
 def get_llm():
     """Initialize Gemini LLM instance with API key."""
@@ -27,9 +35,21 @@ def get_llm():
         api_key=google_api_key
     )
 
-def parse_excel(file_bytes: bytes) -> pd.DataFrame:
-    """Read Excel file into pandas DataFrame."""
-    return pd.read_excel(io.BytesIO(file_bytes))
+def parse_file(file_bytes: bytes, filename: str = None) -> pd.DataFrame:
+    """Read Excel or CSV file into pandas DataFrame."""
+    try:
+        if filename and filename.lower().endswith(".csv"):
+            return pd.read_csv(io.BytesIO(file_bytes))
+        elif filename and (filename.lower().endswith(".xls") or filename.lower().endswith(".xlsx")):
+            return pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl")
+        else:
+            # Try Excel first, fallback to CSV
+            try:
+                return pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl")
+            except Exception:
+                return pd.read_csv(io.BytesIO(file_bytes))
+    except Exception as e:
+        raise ValueError(f"Failed to parse file: {str(e)}")
 
 def sanitize_for_json(obj):
     """Replace NaN/Inf with None for JSON compatibility."""
@@ -53,7 +73,10 @@ def clean_llm_output(result: str) -> str:
 
 def generate_full_ddl(df: pd.DataFrame, table_name: str, target: str) -> str:
     """Use LLM to generate full CREATE TABLE DDL including first few rows."""
-    preview = sanitize_for_json(df.head(50).replace({pd.NA: None}).to_dict(orient="records"))
+    # ✅ Sanitize column names for SQL
+    df = df.rename(columns={c: sanitize_column_name(c) for c in df.columns})
+
+    preview = sanitize_for_json(df.replace({pd.NA: None}).to_dict(orient="records"))
     llm = get_llm()
 
     prompt = f"""
@@ -61,7 +84,7 @@ You are a professional database engineer.
 Given the following table preview (first 50 rows):
 {preview}
 
-1. Infer column names and types.
+1. Use the sanitized column names already provided (do not add spaces or special chars).
 2. Generate a CREATE TABLE statement for {target} named {table_name}.
 3. Include sample INSERT statements for the data shown.
 
@@ -78,10 +101,11 @@ Only return JSON, no commentary.
     except Exception as e:
         raise ValueError(f"Failed to parse JSON from LLM output: {repr(cleaned_result)}") from e
 
-def generate_change_log(new_df: pd.DataFrame, table_name: str) -> dict:
+
+def generate_change_log(new_df: pd.DataFrame, table_name: str, target: str) -> dict:
     """Compare with previous table to generate INSERT/UPDATE/DELETE statements."""
     global PREVIOUS_TABLES
-    previous_df = PREVIOUS_TABLES.get(table_name, pd.DataFrame())
+    previous_df = PREVIOUS_TABLES[target].get(table_name, pd.DataFrame())
 
     if previous_df.empty:
         inserts = sanitize_for_json(new_df.to_dict(orient="records"))
@@ -89,8 +113,12 @@ def generate_change_log(new_df: pd.DataFrame, table_name: str) -> dict:
         deletes = []
     else:
         merged = new_df.merge(previous_df, indicator=True, how='outer')
-        inserts = sanitize_for_json(merged[merged['_merge'] == 'left_only'].drop(columns=['_merge']).to_dict(orient="records"))
-        deletes = sanitize_for_json(merged[merged['_merge'] == 'right_only'].drop(columns=['_merge']).to_dict(orient="records"))
+        inserts = sanitize_for_json(
+            merged[merged['_merge'] == 'left_only'].drop(columns=['_merge']).to_dict(orient="records")
+        )
+        deletes = sanitize_for_json(
+            merged[merged['_merge'] == 'right_only'].drop(columns=['_merge']).to_dict(orient="records")
+        )
 
         # Updates
         common_cols = new_df.columns.intersection(previous_df.columns)
@@ -102,7 +130,7 @@ def generate_change_log(new_df: pd.DataFrame, table_name: str) -> dict:
             if not new_row.equals(old_row):
                 updates.append(sanitize_for_json({'old': old_row.to_dict(), 'new': new_row.to_dict()}))
 
-    PREVIOUS_TABLES[table_name] = new_df.copy()
+    PREVIOUS_TABLES[target][table_name] = new_df.copy()
     return {
         "inserts": inserts,
         "updates": updates,
@@ -110,7 +138,7 @@ def generate_change_log(new_df: pd.DataFrame, table_name: str) -> dict:
     }
 
 def record_table_metadata(table_name: str, target: str, row_count: int, processing_time: float, batch_id: str) -> list:
-    """Record table metadata in global history."""
+    """Record table metadata in global history by target."""
     global TABLE_HISTORY
     entry = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -120,14 +148,14 @@ def record_table_metadata(table_name: str, target: str, row_count: int, processi
         "rows_processed": row_count,
         "processing_time": f"{processing_time:.2f}s"
     }
-    TABLE_HISTORY.append(entry)
-    return TABLE_HISTORY
+    TABLE_HISTORY[target].append(entry)
+    return TABLE_HISTORY[target]
 
 def analyze_and_generate_ddl_with_changes(df: pd.DataFrame, table_name: str, target: str) -> dict:
     """Generate full DDL and dynamic transaction log with metadata for frontend."""
     start_time = time.time()
     full_ddl = generate_full_ddl(df, table_name, target)
-    change_log = generate_change_log(df, table_name)
+    change_log = generate_change_log(df, table_name, target)
     processing_time = time.time() - start_time
     batch_id = str(uuid4())[:8]
 
@@ -143,11 +171,12 @@ def invoke(state: dict) -> dict:
     """
     Entry point for FastAPI route.
     Expects state dict with keys:
-    - 'file': bytes of uploaded Excel
+    - 'file': bytes of uploaded file
+    - 'filename': original filename
     - 'target': 'databricks' or 'snowflake'
     - 'table_name': optional table name
     """
-    df = parse_excel(state["file"])
+    df = parse_file(state["file"], state.get("filename"))
     table_name = state.get("table_name", "uploaded_table")
     target = state["target"]
     return analyze_and_generate_ddl_with_changes(df, table_name, target)

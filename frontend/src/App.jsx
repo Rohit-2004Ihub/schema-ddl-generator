@@ -13,11 +13,9 @@ export default function App() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!file) return alert("Please upload an Excel file");
-
     const formData = new FormData();
     formData.append("file", file);
     formData.append("target", target);
-
     try {
       setLoading(true);
       const res = await axios.post(
@@ -54,10 +52,10 @@ export default function App() {
     e.stopPropagation();
     setDragActive(false);
     const droppedFile = e.dataTransfer.files[0];
-    if (droppedFile && (droppedFile.name.endsWith(".xlsx") || droppedFile.name.endsWith(".xls"))) {
+    if (droppedFile && (droppedFile.name.endsWith(".xlsx") || droppedFile.name.endsWith(".xls") || droppedFile.name.endsWith(".csv"))) {
       setFile(droppedFile);
     } else {
-      alert("Please drop a valid Excel file (.xlsx, .xls)");
+      alert("Please drop a valid Excel file (.xlsx, .xls, .csv)");
     }
   };
 
@@ -124,13 +122,13 @@ export default function App() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".xlsx,.xls"
+                    accept=".xlsx,.xls,.csv"
                     onChange={(e) => {
                       const selectedFile = e.target.files[0];
-                      if (selectedFile && (selectedFile.name.endsWith(".xlsx") || selectedFile.name.endsWith(".xls"))) {
+                      if (selectedFile && (selectedFile.name.endsWith(".xlsx") || selectedFile.name.endsWith(".xls") || selectedFile.name.endsWith(".csv"))) {
                         setFile(selectedFile);
                       } else {
-                        alert("Please select a valid Excel file (.xlsx, .xls)");
+                        alert("Please select a valid Excel file (.xlsx, .xls, .csv)");
                       }
                     }}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
@@ -146,7 +144,7 @@ export default function App() {
                       <FileSpreadsheet className="w-8 h-8 text-gray-400" />
                       <p className="text-sm font-medium text-gray-700">Drop your Excel file here</p>
                       <p className="text-xs text-gray-500">or click to browse</p>
-                      <p className="text-xs text-gray-400">.xlsx, .xls files only</p>
+                      <p className="text-xs text-gray-400">.xlsx, .xls, .csv files only</p>
                     </div>
                   )}
                 </div>
@@ -201,10 +199,10 @@ export default function App() {
           <div className="lg:col-span-2">
             {result ? (
               <div className="space-y-6">
-                {/* Table Metadata for latest uploaded file */}
+                {/* Table Metadata for latest uploaded file (Filtered by target) */}
                 <div className="bg-white rounded-xl shadow-sm border p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                    📝 Table Metadata
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                    📝 Table Info ({target})
                   </h3>
                   <div className="overflow-x-auto">
                     <table className="min-w-full border border-gray-200 rounded-lg">
@@ -215,13 +213,18 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {result.history && result.history.length > 0 &&
-                          Object.entries(result.history[result.history.length - 1]).map(([key, value]) => (
-                            <tr key={key} className="border-t border-gray-200">
-                              <td className="px-4 py-2 font-medium">{key.replace(/_/g, " ")}</td>
-                              <td className="px-4 py-2 font-mono">{value}</td>
-                            </tr>
-                          ))}
+                        {result.history &&
+                          result.history
+                            .filter((entry) => entry.target === target)
+                            .slice(-1)
+                            .map((latest, idx) =>
+                              Object.entries(latest).map(([key, value]) => (
+                                <tr key={`${idx}-${key}`} className="border-t border-gray-200">
+                                  <td className="px-4 py-2 font-medium">{key.replace(/_/g, " ")}</td>
+                                  <td className="px-4 py-2 font-mono">{value}</td>
+                                </tr>
+                              ))
+                            )}
                       </tbody>
                     </table>
                   </div>
@@ -230,7 +233,9 @@ export default function App() {
                 {/* DDL Output */}
                 <div className="bg-white rounded-xl shadow-sm border p-6">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-gray-900 flex items-center">🔧 Generated DDL</h3>
+                    <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                      🔧 Generated DDL ({target})
+                    </h3>
                     <button
                       onClick={downloadDDL}
                       className="flex items-center space-x-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
@@ -244,10 +249,12 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Table History */}
+                {/* Table History Filtered by Target */}
                 {result.history && result.history.length > 0 && (
                   <div className="bg-white rounded-xl shadow-sm border p-6 mt-6">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">🕒 Table Upload History</h3>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                      🕒 Table Upload History ({target})
+                    </h3>
                     <div className="overflow-x-auto">
                       <table className="min-w-full border border-gray-200 rounded-lg">
                         <thead>
@@ -261,16 +268,18 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody>
-                          {result.history.map((entry, idx) => (
-                            <tr key={idx} className="border-t border-gray-200">
-                              <td className="px-4 py-2 font-mono">{entry.timestamp}</td>
-                              <td className="px-4 py-2">{entry.table_name}</td>
-                              <td className="px-4 py-2">{entry.target}</td>
-                              <td className="px-4 py-2 font-mono">{entry.batch_id}</td>
-                              <td className="px-4 py-2">{entry.rows_processed}</td>
-                              <td className="px-4 py-2">{entry.processing_time}</td>
-                            </tr>
-                          ))}
+                          {result.history
+                            .filter((entry) => entry.target === target)
+                            .map((entry, idx) => (
+                              <tr key={idx} className="border-t border-gray-200">
+                                <td className="px-4 py-2 font-mono">{entry.timestamp}</td>
+                                <td className="px-4 py-2">{entry.table_name}</td>
+                                <td className="px-4 py-2">{entry.target}</td>
+                                <td className="px-4 py-2 font-mono">{entry.batch_id}</td>
+                                <td className="px-4 py-2">{entry.rows_processed}</td>
+                                <td className="px-4 py-2">{entry.processing_time}</td>
+                              </tr>
+                            ))}
                         </tbody>
                       </table>
                     </div>
