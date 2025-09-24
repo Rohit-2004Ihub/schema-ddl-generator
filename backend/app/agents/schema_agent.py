@@ -10,12 +10,19 @@ from uuid import uuid4
 from datetime import datetime
 from app.services.ddl_generator import sanitize_column_name
 
+
 # Load environment variables
 load_dotenv()
 
 # Store last uploaded tables and history by target
-PREVIOUS_TABLES = {"databricks": {}, "snowflake": {}}
-TABLE_HISTORY = {"databricks": [], "snowflake": []}
+PREVIOUS_TABLES = {
+    "databricks": {},
+    "snowflake": {}
+}
+TABLE_HISTORY = {
+    "databricks": [],
+    "snowflake": []
+}
 
 def get_llm():
     """Initialize Gemini LLM instance with API key."""
@@ -33,10 +40,10 @@ def parse_file(file_bytes: bytes, filename: str = None) -> pd.DataFrame:
     try:
         if filename and filename.lower().endswith(".csv"):
             return pd.read_csv(io.BytesIO(file_bytes))
-        elif filename and filename.lower().endswith((".xls", ".xlsx")):
+        elif filename and (filename.lower().endswith(".xls") or filename.lower().endswith(".xlsx")):
             return pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl")
         else:
-            # Fallback: try Excel first, then CSV
+            # Try Excel first, fallback to CSV
             try:
                 return pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl")
             except Exception:
@@ -64,49 +71,40 @@ def clean_llm_output(result: str) -> str:
         result = re.sub(r"\n```$", "", result)
     return result.strip()
 
-def generate_full_ddl(df: pd.DataFrame, table_name: str, target: str, column_mapping: dict = None) -> str:
-    """
-    Generate CREATE TABLE + multi-row INSERT statement.
-    `column_mapping`: optional dict to rename columns (Bronze → Silver schema).
-    """
+def generate_full_ddl(df: pd.DataFrame, table_name: str, target: str) -> str:
+    """Use LLM to generate full CREATE TABLE DDL including all rows."""
     # Sanitize column names
     df = df.rename(columns={c: sanitize_column_name(c) for c in df.columns})
+    
+    # Convert full dataset to JSON-friendly dict
+    all_data = sanitize_for_json(df.replace({pd.NA: None}).to_dict(orient="records"))
+    
+    llm = get_llm()
+    
+    prompt = f"""
+You are a professional database engineer.
+Given the following table data:
+{all_data}
 
-    # Apply Bronze → Silver mapping
-    if column_mapping:
-        df = df.rename(columns=column_mapping)
+1. Use the sanitized column names already provided (no spaces or special chars).
+2. Generate a CREATE TABLE statement for {target} named {table_name}.
+3. 3. Generate a single INSERT INTO statement with multiple VALUES tuples
+   instead of separate INSERTs per row.
 
-    # CREATE TABLE statement
-    create_stmt = f"CREATE TABLE {table_name} (\n"
-    col_defs = []
-    for col in df.columns:
-        dtype = df[col].dtype
-        if pd.api.types.is_integer_dtype(dtype):
-            sql_type = "INT"
-        elif pd.api.types.is_float_dtype(dtype):
-            sql_type = "DOUBLE"
-        else:
-            sql_type = "STRING"
-        col_defs.append(f"  {col} {sql_type}")
-    create_stmt += ",\n".join(col_defs) + "\n);"
+Return JSON:
+{{
+"ddl": "<DDL with sample data>"
+}}
+Only return JSON, no commentary.
+"""
+    result = llm.predict(prompt)
+    cleaned_result = clean_llm_output(result)
+    try:
+        return json.loads(cleaned_result)["ddl"]
+    except Exception as e:
+        raise ValueError(f"Failed to parse JSON from LLM output: {repr(cleaned_result)}") from e
 
-    # Multi-row INSERT statement
-    insert_stmt = f"INSERT INTO {table_name} ({', '.join(df.columns)}) VALUES\n"
-    values_list = []
-    for _, row in df.iterrows():
-        vals = []
-        for v in row:
-            if pd.isna(v):
-                vals.append("NULL")
-            elif isinstance(v, str):
-                escaped_val = v.replace("'", "''")
-                vals.append(f"'{escaped_val}'")
-            else:
-                vals.append(str(v))
-        values_list.append(f"({', '.join(vals)})")
-    insert_stmt += ",\n".join(values_list) + ";"
 
-    return f"{create_stmt}\n\n{insert_stmt}"
 
 def generate_change_log(new_df: pd.DataFrame, table_name: str, target: str) -> dict:
     """Compare with previous table to generate INSERT/UPDATE/DELETE statements."""
@@ -125,6 +123,7 @@ def generate_change_log(new_df: pd.DataFrame, table_name: str, target: str) -> d
         deletes = sanitize_for_json(
             merged[merged['_merge'] == 'right_only'].drop(columns=['_merge']).to_dict(orient="records")
         )
+
         # Updates
         common_cols = new_df.columns.intersection(previous_df.columns)
         updates_df = pd.concat([new_df[common_cols], previous_df[common_cols]], axis=1, keys=['new', 'old'])
@@ -136,7 +135,11 @@ def generate_change_log(new_df: pd.DataFrame, table_name: str, target: str) -> d
                 updates.append(sanitize_for_json({'old': old_row.to_dict(), 'new': new_row.to_dict()}))
 
     PREVIOUS_TABLES[target][table_name] = new_df.copy()
-    return {"inserts": inserts, "updates": updates, "deletes": deletes}
+    return {
+        "inserts": inserts,
+        "updates": updates,
+        "deletes": deletes
+    }
 
 def record_table_metadata(table_name: str, target: str, row_count: int, processing_time: float, batch_id: str) -> list:
     """Record table metadata in global history by target."""
@@ -152,15 +155,21 @@ def record_table_metadata(table_name: str, target: str, row_count: int, processi
     TABLE_HISTORY[target].append(entry)
     return TABLE_HISTORY[target]
 
-def analyze_and_generate_ddl_with_changes(df: pd.DataFrame, table_name: str, target: str, column_mapping: dict = None) -> dict:
+def analyze_and_generate_ddl_with_changes(df: pd.DataFrame, table_name: str, target: str) -> dict:
     """Generate full DDL and dynamic transaction log with metadata for frontend."""
     start_time = time.time()
-    full_ddl = generate_full_ddl(df, table_name, target, column_mapping)
+    full_ddl = generate_full_ddl(df, table_name, target)
     change_log = generate_change_log(df, table_name, target)
     processing_time = time.time() - start_time
     batch_id = str(uuid4())[:8]
+
     history = record_table_metadata(table_name, target, len(df), processing_time, batch_id)
-    return {"ddl": full_ddl, "changes": change_log, "history": history}
+
+    return {
+        "ddl": full_ddl,
+        "changes": change_log,
+        "history": history
+    }
 
 def invoke(state: dict) -> dict:
     """
@@ -170,10 +179,8 @@ def invoke(state: dict) -> dict:
     - 'filename': original filename
     - 'target': 'databricks' or 'snowflake'
     - 'table_name': optional table name
-    - 'column_mapping': optional dict for Bronze→Silver schema
     """
     df = parse_file(state["file"], state.get("filename"))
-    table_name = state.get("table_name", "silver_table")
+    table_name = state.get("table_name", "uploaded_table")
     target = state["target"]
-    column_mapping = state.get("column_mapping")  # optional
-    return analyze_and_generate_ddl_with_changes(df, table_name, target, column_mapping)
+    return analyze_and_generate_ddl_with_changes(df, table_name, target)
