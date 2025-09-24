@@ -267,6 +267,7 @@ export default function App() {
                 )}
               </div>
             </div>
+
             {/* Results */}
             <div className="lg:col-span-2">
               {result ? (
@@ -289,19 +290,20 @@ export default function App() {
                           {result.history
                             ?.filter((entry) => entry.target === target)
                             .slice(-1)
-                            .map((latest, idx) => (
+                            .map((entry, idx) => (
                               <tr key={idx} className="border-t border-gray-200">
-                                <td className="px-4 py-2 font-mono">{latest.timestamp}</td>
-                                <td className="px-4 py-2">{latest.table_name}</td>
-                                <td className="px-4 py-2 font-mono">{latest.batch_id}</td>
-                                <td className="px-4 py-2">{latest.rows_processed}</td>
-                                <td className="px-4 py-2">{latest.processing_time}</td>
+                                <td className="px-4 py-2 font-mono">{entry.timestamp}</td>
+                                <td className="px-4 py-2">{entry.table_name}</td>
+                                <td className="px-4 py-2 font-mono">{entry.batch_id}</td>
+                                <td className="px-4 py-2">{entry.rows_processed}</td>
+                                <td className="px-4 py-2">{entry.processing_time}</td>
                               </tr>
                             ))}
                         </tbody>
                       </table>
                     </div>
                   </div>
+
                   {/* Generated DDL */}
                   <div className="bg-white rounded-xl shadow-sm border p-6">
                     <div className="flex items-center justify-between mb-4">
@@ -329,6 +331,7 @@ export default function App() {
                       <pre className="text-sm text-green-400 font-mono">{result.ddl}</pre>
                     </div>
                   </div>
+
                   {/* Table Upload History (Databricks) */}
                   {result.history && result.history.filter(entry => entry.target === "databricks").length > 0 && (
                     <div className="bg-white rounded-xl shadow-sm border p-6">
@@ -361,6 +364,7 @@ export default function App() {
                       </div>
                     </div>
                   )}
+
                   {/* Table Upload History (Snowflake) */}
                   {result.history && result.history.filter(entry => entry.target === "snowflake").length > 0 && (
                     <div className="bg-white rounded-xl shadow-sm border p-6">
@@ -501,6 +505,7 @@ export default function App() {
                 )}
               </div>
             </div>
+
             {/* Mapping Results */}
             <div className="lg:col-span-2">
               {mappingResult ? (

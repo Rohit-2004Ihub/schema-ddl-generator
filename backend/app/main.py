@@ -38,7 +38,7 @@ app.include_router(schema_router.router, prefix="/api", tags=["Schema"])
 # ----------------------------
 # Endpoint: Analyze Bronze table
 # ----------------------------
-@app.post("/api/analyze_bronze/")
+@app.post("/api/generate-schema/")
 async def analyze_bronze(
     file: UploadFile,
     target: str = Form(...),
