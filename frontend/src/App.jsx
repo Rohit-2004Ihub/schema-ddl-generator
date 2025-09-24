@@ -16,7 +16,7 @@ export default function App() {
   const [file, setFile] = useState(null);
   const [bronzeFile, setBronzeFile] = useState(null);
   const [silverFile, setSilverFile] = useState(null);
-  const [autoSilver, setAutoSilver] = useState(true); // <-- New: auto-create Silver
+  const [autoSilver, setAutoSilver] = useState(true);
   const [target, setTarget] = useState("databricks");
   const [result, setResult] = useState(null);
   const [mappingResult, setMappingResult] = useState(null);
@@ -144,7 +144,7 @@ export default function App() {
     setBronzeFile(null);
     setSilverFile(null);
     setMappingResult(null);
-    setAutoSilver(true); // reset checkbox
+    setAutoSilver(true);
     if (bronzeInputRef.current) bronzeInputRef.current.value = "";
     if (silverInputRef.current) silverInputRef.current.value = "";
   };
@@ -271,6 +271,38 @@ export default function App() {
             <div className="lg:col-span-2">
               {result ? (
                 <div className="space-y-6">
+                  {/* Table Metadata */}
+                  <div className="bg-white rounded-xl shadow-sm border p-6">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">📝 Table Metadata ({target})</h3>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full border border-gray-200 rounded-lg">
+                        <thead>
+                          <tr className="bg-gray-100 text-gray-700">
+                            <th className="px-4 py-2 text-left">Timestamp</th>
+                            <th className="px-4 py-2 text-left">Table Name</th>
+                            <th className="px-4 py-2 text-left">Batch ID</th>
+                            <th className="px-4 py-2 text-left">Rows Processed</th>
+                            <th className="px-4 py-2 text-left">Processing Time</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {result.history
+                            ?.filter((entry) => entry.target === target)
+                            .slice(-1)
+                            .map((latest, idx) => (
+                              <tr key={idx} className="border-t border-gray-200">
+                                <td className="px-4 py-2 font-mono">{latest.timestamp}</td>
+                                <td className="px-4 py-2">{latest.table_name}</td>
+                                <td className="px-4 py-2 font-mono">{latest.batch_id}</td>
+                                <td className="px-4 py-2">{latest.rows_processed}</td>
+                                <td className="px-4 py-2">{latest.processing_time}</td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  {/* Generated DDL */}
                   <div className="bg-white rounded-xl shadow-sm border p-6">
                     <div className="flex items-center justify-between mb-4">
                       <h3 className="text-lg font-semibold text-gray-900 flex items-center">
@@ -297,6 +329,70 @@ export default function App() {
                       <pre className="text-sm text-green-400 font-mono">{result.ddl}</pre>
                     </div>
                   </div>
+                  {/* Table Upload History (Databricks) */}
+                  {result.history && result.history.filter(entry => entry.target === "databricks").length > 0 && (
+                    <div className="bg-white rounded-xl shadow-sm border p-6">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-4">🕒 Table Upload History (Databricks)</h3>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full border border-gray-200 rounded-lg">
+                          <thead>
+                            <tr className="bg-gray-100 text-gray-700">
+                              <th className="px-4 py-2 text-left">Timestamp</th>
+                              <th className="px-4 py-2 text-left">Table Name</th>
+                              <th className="px-4 py-2 text-left">Batch ID</th>
+                              <th className="px-4 py-2 text-left">Rows Processed</th>
+                              <th className="px-4 py-2 text-left">Processing Time</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {result.history
+                              .filter((entry) => entry.target === "databricks")
+                              .map((entry, idx) => (
+                                <tr key={idx} className="border-t border-gray-200">
+                                  <td className="px-4 py-2 font-mono">{entry.timestamp}</td>
+                                  <td className="px-4 py-2">{entry.table_name}</td>
+                                  <td className="px-4 py-2 font-mono">{entry.batch_id}</td>
+                                  <td className="px-4 py-2">{entry.rows_processed}</td>
+                                  <td className="px-4 py-2">{entry.processing_time}</td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                  {/* Table Upload History (Snowflake) */}
+                  {result.history && result.history.filter(entry => entry.target === "snowflake").length > 0 && (
+                    <div className="bg-white rounded-xl shadow-sm border p-6">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-4">🕒 Table Upload History (Snowflake)</h3>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full border border-gray-200 rounded-lg">
+                          <thead>
+                            <tr className="bg-gray-100 text-gray-700">
+                              <th className="px-4 py-2 text-left">Timestamp</th>
+                              <th className="px-4 py-2 text-left">Table Name</th>
+                              <th className="px-4 py-2 text-left">Batch ID</th>
+                              <th className="px-4 py-2 text-left">Rows Processed</th>
+                              <th className="px-4 py-2 text-left">Processing Time</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {result.history
+                              .filter((entry) => entry.target === "snowflake")
+                              .map((entry, idx) => (
+                                <tr key={idx} className="border-t border-gray-200">
+                                  <td className="px-4 py-2 font-mono">{entry.timestamp}</td>
+                                  <td className="px-4 py-2">{entry.table_name}</td>
+                                  <td className="px-4 py-2 font-mono">{entry.batch_id}</td>
+                                  <td className="px-4 py-2">{entry.rows_processed}</td>
+                                  <td className="px-4 py-2">{entry.processing_time}</td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="bg-white rounded-xl shadow-sm border p-12 text-center">
