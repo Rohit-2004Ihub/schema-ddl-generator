@@ -1,0 +1,26 @@
+# FastAPI and ASGI server
+fastapi
+uvicorn[standard]==0.30.6
+
+# File parsing and Excel/CSV
+pandas
+openpyxl
+xlrd
+xlsxwriter
+
+# LangChain + Google Generative AI
+langchain
+langchain-core
+langchain-community
+langchain-google-genai
+google-generativeai
+
+# Environment variables
+python-dotenv
+
+# For fuzzy matching (better than difflib)
+rapidfuzz
+
+# For FastAPI file uploads and CORS
+python-multipart
+aiofiles
