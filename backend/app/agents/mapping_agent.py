@@ -5,6 +5,7 @@ import os
 import json
 import re
 from uuid import uuid4
+import numpy as np
 from datetime import datetime
 from difflib import get_close_matches
 from fastapi.responses import FileResponse
@@ -48,6 +49,17 @@ def sanitize_column_name(col_name: str) -> str:
     sanitized = re.sub(r"__+", "_", sanitized)
     return sanitized.strip("_")
 
+# --- Helper: Clean NaN/NaT/pd.NA for JSON ---
+def _clean_for_json(obj):
+    if isinstance(obj, float) and (np.isnan(obj) or np.isinf(obj)):
+        return None
+    if obj is pd.NA:
+        return None
+    if isinstance(obj, dict):
+        return {k: _clean_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_clean_for_json(v) for v in obj]
+    return obj
 
 # --- Smart Bronze → Silver Mapping and DDL ---
 def map_bronze_to_silver(
